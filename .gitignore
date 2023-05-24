@@ -1,6 +1,5 @@
 # 忽略.ipynb_checkpoints
-
-/.ipynb_checkpoints/
-/data/
-.gitignore
+# /.ipynb_checkpoints/
+# /data/
+# .gitignore
 
