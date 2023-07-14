@@ -3,7 +3,7 @@ import torch.nn as nn
 import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms  # trnasformes 用于对图像进行各种变换
+from torchvision import transforms  # transforms 用于对图像进行各种变换
 from PIL import Image
 import os
 import matplotlib.pyplot as plt
@@ -28,6 +28,11 @@ n_classes = len(leaves_labels)
 
 
 # 把label转成对应的数字
+"""
+    将标签转换对应的数字的作用：
+    1.通常算法要求输入的标签是数字形式而非文本形式
+    2.便于计算和索引，使用索引更高效
+"""
 class_to_num = dict(zip(leaves_labels, range(n_classes)))
 # print(class_to_num)  # {'abies_concolor': 0, 'abies_nordmanniana': 1, 'acer_campestre': 2, 'acer_ginnala': 3 ..
 
@@ -47,7 +52,6 @@ class LeavseData(Dataset):
             mode(string): 训练模型还是测试模型
             valid_ratio(float): 验证集比例
         """
-
         # 需要调整后的照片尺寸
         self.resize_height = resize_height
         self.resize_width = resize_width
@@ -71,11 +75,13 @@ class LeavseData(Dataset):
             self.train_label = np.asarray(self.data_info.iloc[1:self.train_len, 1]) 
             self.image_arr = self.train_image
             self.label_arr = self.train_label
+
         elif mode == 'valid':
             self.valid_image = np.asarray(self.data_info.iloc[self.train_len:, 0])
             self.valid_label = np.asarray(self.data_info.iloc[self.train_len:, 1])
             self.image_arr = self.valid_image
             self.label_arr = self.valid_label
+
         elif mode == 'test':
             self.test_image = np.asarray(self.data_info.iloc[1:, 0])
             self.image_arr = self.test_image
@@ -86,17 +92,19 @@ class LeavseData(Dataset):
 
     
     def __getitem__(self, index):
+        """
+            用于在对象中实现索引操作
+        """
         # 从image_arr中得到索引对应的文件名
         single_image_name = self.image_arr[index]
 
         # 读取图像文件
         img_as_img = Image.open(self.file_path + single_image_name)
 
-
         # 设置好需要转换的变量，还可以包括一些列的nomarlize等操作
         if self.mode == 'train':
             transform = transforms.Compose([
-                transforms.RandomHorizontalFlip(p=0.5),   # 随机水平翻转 选择一个概率
+                transforms.RandomHorizontalFlip(p=0.5),   # 随机水平翻转 选择一个概率（图像增强）
                 transforms.RandomVerticalFlip(p=0.5),     # 随机水平反转 选择一个概率
                 transforms.ToTensor()
             ])
@@ -136,9 +144,7 @@ img_path = '../data/classify-leaves/'
 train_dataset = LeavseData(train_path, img_path, mode='train')
 val_dataset = LeavseData(train_path, img_path, mode='valid')
 test_dataset = LeavseData(test_path, img_path, mode='test')
-print(train_dataset)
-print(val_dataset)
-print(test_dataset)
+
 
 
 # 定义数据加载器，可以按一定规则提取数据，方便多线程，批次和shuffle
@@ -213,106 +219,122 @@ def resnet_model(num_classes, features_extract=False, use_pretrained=True):
     return model_ft
 
 
-# 3.训练
-# 超参数
-learning_rate = 3e-4
-weight_decay = 1e-3
-num_epoch = 50
+
+# 3.设置超参数
+learning_rate = 3e-4  # 学习率
+weight_decay = 1e-3   # 权重衰退，正则化计算，用来限制模型的参数大小，以减少过拟合的风险
+num_epoch = 50        # 训练次数
 
 
-# 模型参数（权重和参数）
-# 涉及从头开始训练模型并在训练结束时保存权重，或者可能涉及及加载他人提供的预训练权重
-model_path = './model/pre_resnext_model.ckpt'
+# model_path = './model/pre_resnext_model.ckpt'  # 预训练权重参数，迁移学习
+# 设置保存预测结果的文件
 saveFileName = './submission.csv'
 
-
-# predict
+# 创建模型 restnet
 model = resnet_model(176)
 
-# create model and load weights from checkpoint  走得就是 pre_resnext_model
+# 将模型移动到指定的设备上进行加速计算
 model = model.to(device)
+
+# 模型加载预训练参数
 # model.load_state_dict(torch.load(model_path))   # if no load weights from checkpoint train
 
-
-# for the classification task，we use coress-entropy as the measurment of performance
+# 定义损失函数，这里使用交叉熵损失函数
 criterion = nn.CrossEntropyLoss()
 
-# Initialize optimizer, you may fine-tune some hyperparameters such as l learing rate on your own
+# 初始化优化器，优化器用于根据计算得到的梯度来更新模型的参数
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-
-# The number of training epochs
+# 控制训练的轮数
 n_epochs = num_epoch
 
+# 初始化变量
 best_acc = 0.0
-for epoch in range(n_epochs):
-    # ------------------Trainng-------------------
-    # Make sure the model is in train mode before training
+
+
+# 4.训练
+for epoch in range(n_epochs):  
+    # 将模型设置为训练模型
     model.train()
-    # These are used to record information in training
+
+    # 用于记录每个批次的训练损失和准确率
     train_loss = []
     train_accs = []
-    # Iterate the training set by batches
+
     for batch in tqdm(train_loader):
-        # A batch consists of image data and correspongd labels
+        # 将批次中的图像数据和对应的标签分离出来
         imgs, labels = batch
+
+        # 将数据移动到指定的设备上进行加速计算
         imgs = imgs.to(device)
         labels = labels.to(device)
-        # Forward the data (Make sure data and corresponding lebels)
+
+        # 将图像数据输入模型，得到模型的结果
         logits = model(imgs)
-        # calculate the cross-entropy loss
-        # we don't need to apply softmax before computing cross-entroy as is it done automaatically
+
+        # 计算模型预测结果与真实标签间的损失
         loss = criterion(logits, labels)
 
-        # Gradients stroed in the parameters in the previous step should be cleard out first
+        # 清空之前计算的梯度信息，防止梯度累积
         optimizer.zero_grad()
-        # compute the gradients for parameters
+
+        # 根据损害函数的值，反向传播算法，计算模型参数的梯度
         loss.backward()
-        # updata the parameters with computed gradients
+
+        # 使用优化器 根据计算得到的梯度来更新参数
         optimizer.step()
 
-        # compute the accuray for current batch
-        acc = (logits.argmax(dim=-1) == labels).float().mean()
+        # 计算当前批次的准确率
+        acc = (logits.argmax(dim=-1) == labels).float().mean()  # argmax 找出概率最高的类型，与真实标签比较
 
-        # recode the loss and accuracy
+        # 将当前批次的损失和准确率记录下来
         train_loss.append(loss.item())
         train_accs.append(acc)
 
     
-    # the average loss and curracy of the training set is the average of the recorded values
+    # 计算整个训练集上的平均损失和准确率
     train_loss = sum(train_loss) / len(train_loss)
     train_acc =  sum(train_accs) / len(train_accs)
 
-    # Print the information
+    # print the information
     print(f"[ Train | {epoch + 1:03d}/{n_epochs:03d}] loss = {train_loss:.5f}, acc = {train_acc:.5f}")
 
 
 
+# 5. 进行模型的验证并生成预测结果
+# 将模型设置为评估模型，在评估模型下，模型不会进行参数更新
+model.eval()  
 
-# 4. 验证
-# ---------------Validation--------------------------
-# Make sure the model is eval mode
-# Some modules like Dropout or BatchNorm affect if the model is in training mode
-model.eval()
-
-# initialize a list to store the predictions
+# 初始化列表，用于存储预测结果
 predictions = []
+
 # iterate the testing set by batches
 for batch in tqdm(test_loader):
+    # 将批次中的图像数据提取出来
     imgs = batch
+
+    # 使用上下问管理器，确保在验证阶段不进行梯度算计，以减少内存消耗和加速计算
     with torch.no_grad():
-        logits = model(imgs.to(device))
+        # 将图像数据输入模型，得到模型结果
+        logits = model(imgs.to(device)) 
     
-    # Take the class with greatest logit as prediction and recode it
-    predictions.extend(logits.argmax(dim=-1).cpu().numpy().tolist())
+    # 将每个批次的预测结果中概率最高的类型索引添加到 predic 列表中
+    predictions.extend(logits.argmax(dim=-1).cpu().numpy().tolist()) 
 
 preds = []
+# 将预测结果数字转换为类型标签
 for i in predictions:
     preds.append(num_to_class[i])
 
-
+# 读取预测数据集文件
 test_data = pd.read_csv(test_path)
+
+# 将转换后的预测结果（类别标签）添加到测试数据集的'label'列
 test_data['label'] = pd.Series(preds)
+
+# 将测试数据集中的图像文件名和预测结果拼接一起，形成最终的提交结果
 submission = pd.concat([test_data['image'], test_data['label']], axis=1)
+
+# 将其结果转换为CSV文件 
 submission.to_csv(saveFileName, index=False)
 print("Done!")
