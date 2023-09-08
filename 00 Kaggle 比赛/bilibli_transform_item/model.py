@@ -5,6 +5,7 @@ from util import MultiHead, PositionEmbedding, FullyConnectedOutput
 
 
 # 编码器层
+
 class EncoderLayer(torch.nn.Module):
     def __init__(self):
         super().__init__()
